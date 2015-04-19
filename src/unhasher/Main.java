@@ -9,7 +9,7 @@ import java.net.URL;
 import java.util.*;
 import java.util.regex.Pattern;
 
-public class Main {
+public class Main implements Runnable{
 
     private static final Map<Integer,char[]> values = new HashMap<Integer, char[]>();
 //    private static final String regex = "( |\\.|,|\")+";
@@ -23,15 +23,16 @@ public class Main {
     private static final Pattern invalid = Pattern.compile(invalidRegex);
     private static final Pattern invalidFinal = Pattern.compile(finalRegex);
     private static final long HASH = 0x7867EB0B;
-    private static int MAX_OVERFLOW = 10000000;
+    private static final long THREADS = 1000;
+    private static int MAX_OVERFLOW = 1000000000;
     private static Trie<String, Boolean> dictionaryTrie = new PatriciaTrie<String, Boolean>(StringKeyAnalyzer.BYTE);
+    private static List<String> results = new ArrayList<String>();
     static long time;
+    private long mine;
 
     public static void main(String[] args)
     {
         time = System.nanoTime();
-//        String letters = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ .,\"()";
-//        String letters = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ .,\"'";
         String letters = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ '";
         for (int i = 0; i < letters.length(); i++)
         {
@@ -48,8 +49,27 @@ public class Main {
         getDictionary(file);
         System.out.println("Time to Initialise: " + ((System.nanoTime() - time) / 1000000) + "ms");
         time = System.nanoTime();
-        testStrings(new File(file, "results-"+MAX_OVERFLOW+".txt"));
+
+        List<Thread> threads = new ArrayList<Thread>();
+        for (int i = 0; i<(int)THREADS; i++)
+        {
+            Thread thread = new Thread(new Main(i));
+            threads.add(thread);
+            thread.start();
+        }
+
+        for(Thread thread : threads)
+            try
+            {
+                thread.join();
+            } catch (InterruptedException e)
+            {
+            }
+
+        writeFile(file, results);
     }
+
+
 
     private static void getDictionary(File file)
     {
@@ -109,25 +129,31 @@ public class Main {
         }
     }
 
-    private static void testStrings(File file)
+    private Main(int thread)
+    {
+        mine = thread;
+    }
+
+    private void testStrings()
     {
         long overflow = (long)Integer.MAX_VALUE - Integer.MIN_VALUE + 1;
-        List<String> results = new ArrayList<String>();
         int percent = MAX_OVERFLOW/1000;
         int printed = 0;
         for (long i = 0; i<MAX_OVERFLOW; i++)
         {
-            long hashToTest = i * overflow + HASH;
-            checkPotentialResults(hashToTest, "", results);
-            if ((i+1) % percent==0)
+            if (i % THREADS == mine)
             {
-                int now = (int)((System.nanoTime() - time)/1000000000);
-                if (now == printed) continue;
-                printed = now;
-                System.out.println(((double)(i+1)/(percent*10)) + "% complete after " + now + "s");
+                long hashToTest = i * overflow + HASH;
+                checkPotentialResults(hashToTest, "");
+                if (mine == 0 && (i + 1) % percent == 1)
+                {
+                    int now = (int)((System.nanoTime() - time) / 1000000000);
+                    if (now == printed) continue;
+                    printed = now;
+                    System.out.println(((double)(i) / (percent * 10)) + "% complete after " + now + "s");
+                }
             }
         }
-        writeFile(file, results);
     }
 
     private static boolean isFullyValid(String sentence)
@@ -163,7 +189,7 @@ public class Main {
         return dictionaryTrie.prefixMap(s.toLowerCase()).size()>0;
     }
 
-    private static void checkPotentialResults(long hashToTest, String result, List<String> results)
+    private static void checkPotentialResults(long hashToTest, String result)
     {
         if (hashToTest == 0)
         {
@@ -178,12 +204,19 @@ public class Main {
         if (lastChars == null || !isPotentiallyValid(result)) return;
         for (char test : lastChars)
         {
-            checkPotentialResults((hashToTest-test)/31, result + test, results);
+            checkPotentialResults((hashToTest-test)/31, result + test);
         }
     }
 
     private static char[] getLastChars(long hashcode)
     {
         return values.get((int)(hashcode % 31));
+    }
+
+
+    @Override
+    public void run()
+    {
+        testStrings();
     }
 }
