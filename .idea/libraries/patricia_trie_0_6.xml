@@ -1,0 +1,9 @@
+<component name="libraryTable">
+  <library name="patricia-trie-0.6">
+    <CLASSES>
+      <root url="jar://$PROJECT_DIR$/lib/patricia-trie-0.6.jar!/" />
+    </CLASSES>
+    <JAVADOC />
+    <SOURCES />
+  </library>
+</component>
