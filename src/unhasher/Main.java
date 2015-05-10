@@ -5,6 +5,7 @@ import org.ardverk.collection.StringKeyAnalyzer;
 import org.ardverk.collection.Trie;
 
 import java.io.*;
+import java.math.BigInteger;
 import java.net.URL;
 import java.util.*;
 import java.util.regex.Pattern;
@@ -15,20 +16,26 @@ public class Main implements Runnable{
 //    private static final String regex = "( |\\.|,|\")+";
     private static final String regex = " +";
 //    private static final String invalidRegex = "(?:\\.|,)[^ ]|[a-z][A-Z]|\\w\"\\w";
-    private static final String invalidRegex = "[A-Z]\\w";
-    private static final String finalRegex = "(?:[A-Z]\\w)|(?: $)";
+    private static final String invalidRegex = "(?:[A-Z]\\w)|(?:  )";
+    private static final String finalRegex = "(?:[A-Z]\\w)|(?:  )|(?: $)";
 //    private static final Set<Character> checkChars = new HashSet<Character>(Arrays.asList(' ', '.', ',', '"'));
     private static final Set<Character> checkChars = new HashSet<Character>(Arrays.asList(' '));
     private static final Pattern ignore = Pattern.compile(regex);
     private static final Pattern invalid = Pattern.compile(invalidRegex);
     private static final Pattern invalidFinal = Pattern.compile(finalRegex);
-    private static final long HASH = 0x7867EB0B;
-    private static final long THREADS = 1000;
     private static int MAX_OVERFLOW = 1000000000;
     private static Trie<String, Boolean> dictionaryTrie = new PatriciaTrie<String, Boolean>(StringKeyAnalyzer.BYTE);
     private static List<String> results = new ArrayList<String>();
     static long time;
-    private long mine;
+    private byte mine;
+    private static final BigInteger THIRTY_ONE = new BigInteger(new byte[]{31});
+    private static final BigInteger MIN = new BigInteger(new byte[]{'A'-1});
+    private static final BigInteger MAX = new BigInteger(new byte[]{'z'});
+    private static final BigInteger INT_RANGE = new BigInteger(new byte[]{0xF,0xF,0xF,0xF,0xF,0xF,0xF,0xF});
+    private static final BigInteger HASH = new BigInteger(new byte[]{0x7,0x8, 0x6,0x7,0xE, 0xB, 0x0, 0xB});
+    private static final BigInteger THREADS = new BigInteger(new byte[]{8});
+    private static final BigInteger STEP = THREADS.multiply(HASH);
+    private static final Map<Character, BigInteger> INTEGER_MAP = new HashMap<Character, BigInteger>();
 
     public static void main(String[] args)
     {
@@ -40,6 +47,7 @@ public class Main implements Runnable{
             String val = values.containsKey(hash)? new String(values.get(hash)) : "";
             val += letters.charAt(i);
             values.put(hash, val.toCharArray());
+            INTEGER_MAP.put(letters.charAt(i), new BigInteger(new byte[]{(byte)letters.charAt(i)}));
         }
 
         URL location = Main.class.getProtectionDomain().getCodeSource().getLocation();
@@ -47,11 +55,11 @@ public class Main implements Runnable{
         while(file.getPath().contains("out")) file=file.getParentFile();
 
         getDictionary(file);
+
         System.out.println("Time to Initialise: " + ((System.nanoTime() - time) / 1000000) + "ms");
         time = System.nanoTime();
-
         List<Thread> threads = new ArrayList<Thread>();
-        for (int i = 0; i<(int)THREADS; i++)
+        for (int i = 0; i<THREADS.intValue(); i++)
         {
             Thread thread = new Thread(new Main(i));
             threads.add(thread);
@@ -131,26 +139,23 @@ public class Main implements Runnable{
 
     private Main(int thread)
     {
-        mine = thread;
+        mine = (byte)thread;
     }
 
     private void testStrings()
     {
-        long overflow = (long)Integer.MAX_VALUE - Integer.MIN_VALUE + 1;
-        int percent = MAX_OVERFLOW/1000;
+        HashPair pair = new HashPair(19);
         int printed = 0;
-        for (long i = 0; i<MAX_OVERFLOW; i++)
+        for (BigInteger i = pair.min.add(new BigInteger(new byte[]{mine}).multiply(HASH)); i.compareTo(pair.max) < 0 ; i=i.add(STEP))
         {
-            if (i % THREADS == mine)
+            checkPotentialResults(i, "");
+            if (mine == 0)
             {
-                long hashToTest = i * overflow + HASH;
-                checkPotentialResults(hashToTest, "");
-                if (mine == 0 && (i + 1) % percent == 1)
+                int now = (int)((System.nanoTime() - time) / 1000000000);
+                if (printed != now && now % 600 == 0)
                 {
-                    int now = (int)((System.nanoTime() - time) / 1000000000);
-                    if (now == printed) continue;
                     printed = now;
-                    System.out.println(((double)(i) / (percent * 10)) + "% complete after " + now + "s");
+                    System.out.println(i.toString() + "/" + pair.max.toString() + " complete after " + now + "s");
                 }
             }
         }
@@ -189,9 +194,9 @@ public class Main implements Runnable{
         return dictionaryTrie.prefixMap(s.toLowerCase()).size()>0;
     }
 
-    private static void checkPotentialResults(long hashToTest, String result)
+    private static void checkPotentialResults(BigInteger hashToTest, String result)
     {
-        if (hashToTest == 0)
+        if (hashToTest.compareTo(BigInteger.ZERO) == 0)
         {
             if (isFullyValid(result))
             {
@@ -204,19 +209,35 @@ public class Main implements Runnable{
         if (lastChars == null || !isPotentiallyValid(result)) return;
         for (char test : lastChars)
         {
-            checkPotentialResults((hashToTest-test)/31, result + test);
+            checkPotentialResults(hashToTest.subtract(INTEGER_MAP.get(test)).divide(THIRTY_ONE), result + test);
         }
     }
 
-    private static char[] getLastChars(long hashcode)
+    private static char[] getLastChars(BigInteger hashcode)
     {
-        return values.get((int)(hashcode % 31));
+        return values.get(hashcode.intValue() % 31);
     }
-
 
     @Override
     public void run()
     {
         testStrings();
+    }
+
+    private static class HashPair
+    {
+        private BigInteger min = BigInteger.ZERO;
+        private BigInteger max = BigInteger.ZERO;
+        private int index;
+
+        public HashPair(int length)
+        {
+            index = length;
+            for (int i = 0; i < length; i++)
+            {
+                min = min.multiply(THIRTY_ONE).add(MIN);
+                max = max.multiply(THIRTY_ONE).add(MAX);
+            }
+        }
     }
 }
